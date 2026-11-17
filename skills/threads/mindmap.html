@@ -1,0 +1,468 @@
+<title>Thread Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky header with project + status tally; left-to-right tree canvas beside a detail panel (stacks under 860px). */
+:root {
+  --bg: #f3f6f7;
+  --surface: #ffffff;
+  --ink: #18262e;
+  --muted: #5a6c76;
+  --line: #c6d2d8;
+  --grid: #dde5e9;
+  --accent: #0d6a75;
+  --accent-soft: #dcefF1;
+  --active: #b45309;
+  --active-soft: #fdf0e1;
+  --open: #2d5cb0;
+  --open-soft: #e5ecf8;
+  --done: #2d7a4d;
+  --done-soft: #e3f2e8;
+  --dropped: #85939a;
+  --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --node-w: 224px;
+  --node-h: 54px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1619; --surface: #162127; --ink: #e2ebee; --muted: #93a6af; --line: #2e3f47; --grid: #1c292f;
+    --accent: #52b6c2; --accent-soft: #15353a; --active: #f2a03a; --active-soft: #3a2a14;
+    --open: #86a8ec; --open-soft: #1c2a45; --done: #6fc392; --done-soft: #183427; --dropped: #6b7a81;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1619; --surface: #162127; --ink: #e2ebee; --muted: #93a6af; --line: #2e3f47; --grid: #1c292f;
+  --accent: #52b6c2; --accent-soft: #15353a; --active: #f2a03a; --active-soft: #3a2a14;
+  --open: #86a8ec; --open-soft: #1c2a45; --done: #6fc392; --done-soft: #183427; --dropped: #6b7a81;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.5; display: flex; flex-direction: column; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+button, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.project-pick { display: flex; align-items: center; gap: 6px; }
+.project-pick label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.project-pick select { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; max-width: 60vw; }
+.tally { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 9px 2px 7px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chip .mk { font-size: 11px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+
+.chasing {
+  flex-basis: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 13px; color: var(--muted);
+}
+.chasing strong { color: var(--active); font-weight: 600; }
+.chasing .meta { margin-left: auto; font-size: 12px; }
+
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
+.canvas-wrap {
+  position: relative; overflow: auto; min-height: 320px;
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--grid) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+}
+.canvas { position: relative; margin: 28px; }
+.canvas svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.edge.trail { stroke: var(--active); stroke-width: 2; }
+.edge.faded { stroke-dasharray: 3 4; }
+
+.node {
+  position: absolute; width: var(--node-w); height: var(--node-h);
+  display: flex; align-items: center; gap: 9px; text-align: left;
+  padding: 6px 10px 6px 9px; border-radius: 8px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.node:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,.08); }
+.node .mk { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.node .t { min-width: 0; font-size: 13px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.node.parked { border-style: dashed; }
+.node.parked .mk { border: 1.5px dashed var(--muted); color: var(--muted); }
+.node.open .mk { background: var(--open-soft); color: var(--open); border: 1.5px solid var(--open); }
+.node.done .mk { background: var(--done-soft); color: var(--done); }
+.node.done .t { color: var(--muted); }
+.node.dropped { background: transparent; }
+.node.dropped .mk { color: var(--dropped); }
+.node.dropped .t { color: var(--dropped); text-decoration: line-through; }
+.node.active { border: 2px solid var(--active); background: var(--active-soft); }
+.node.active .mk { background: var(--active); color: var(--surface); }
+.node.active .t { font-weight: 600; }
+.node.root .t { font-weight: 700; }
+.node.selected { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 4px var(--accent); }
+.node .brief-dot { position: absolute; top: 5px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.node .live-dot { position: absolute; bottom: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--active); box-shadow: 0 0 0 2px var(--active-soft); }
+.cmd-label { font-size: 11px; color: var(--muted); margin: 12px 0 -8px; }
+.btn-ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+a.btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; margin-top: 14px; padding: 8px 14px; font-size: 13.5px; }
+.session-line { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+aside {
+  border-left: 1px solid var(--line); background: var(--surface); overflow: auto; min-width: 0;
+  padding-block: 20px 32px;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+.status-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; padding: 2px 8px; border-radius: 4px; }
+.status-chip.parked { color: var(--muted); border: 1px dashed var(--muted); }
+.status-chip.active { color: var(--active); background: var(--active-soft); }
+.status-chip.open { color: var(--open); background: var(--open-soft); }
+.status-chip.done { color: var(--done); background: var(--done-soft); }
+.status-chip.dropped { color: var(--dropped); border: 1px solid var(--line); }
+aside h2 { font-size: 19px; line-height: 1.3; margin: 10px 0 6px; text-wrap: balance; }
+.crumbs { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.crumbs button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; }
+.crumbs button:hover { text-decoration: underline; }
+.cmd { display: flex; align-items: center; gap: 8px; margin: 14px 0 4px; }
+.cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-family: var(--font-mono); font-size: 12.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; }
+.btn { background: var(--accent); color: var(--surface); border: 0; border-radius: 6px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn:hover { filter: brightness(1.08); }
+.id-line { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.sec { margin-top: 20px; }
+.sec h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.sec p { margin: 0; max-width: 62ch; }
+.kids { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.kids button { width: 100%; display: flex; gap: 8px; align-items: baseline; text-align: left; background: none; border: 0; padding: 3px 0; cursor: pointer; }
+.kids button:hover .kt { color: var(--accent); }
+.kids .km { width: 14px; flex: none; color: var(--muted); font-size: 12px; }
+.brief { font-size: 13.5px; border-top: 1px solid var(--line); padding-top: 4px; }
+.brief h4 { font-size: 13px; margin: 16px 0 4px; }
+.brief h5 { font-size: 12.5px; margin: 12px 0 4px; color: var(--muted); }
+.brief p { margin: 6px 0; }
+.brief ul { margin: 4px 0; padding-left: 18px; }
+.brief li { margin: 2px 0; }
+.brief code { font-family: var(--font-mono); font-size: 12px; background: var(--bg); padding: 0 4px; border-radius: 3px; }
+.brief pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; overflow-x: auto; }
+.none { color: var(--muted); font-style: italic; }
+
+.state { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; }
+.state-card { max-width: 440px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 22px 24px; }
+.state-card h2 { margin: 0 0 8px; font-size: 17px; }
+.state-card p { margin: 6px 0; color: var(--muted); }
+.state-card code { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.note { font-size: 12px; color: var(--muted); }
+.example-flag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--open); border: 1px solid var(--open); padding: 1px 6px; border-radius: 4px; }
+
+@media (max-width: 860px) {
+  main { grid-template-columns: 1fr; grid-template-rows: minmax(340px, 55vh) auto; }
+  aside { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  body { height: auto; }
+  .tally { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .node { transition: none; } }
+</style>
+
+<header>
+  <div class="brand"><h1>Thread Map</h1></div>
+  <div class="project-pick">
+    <label for="project">Map</label>
+    <select id="project" aria-label="Choose a map"><option>Loading…</option></select>
+  </div>
+  <div class="tally" id="tally"></div>
+  <label class="toggle"><input type="checkbox" id="showFinished"> Show finished</label>
+  <div class="chasing" id="chasing"></div>
+</header>
+
+<main>
+  <div class="canvas-wrap" id="wrap">
+    <div class="canvas" id="canvas"><svg id="edges"></svg></div>
+    <div class="state" id="state">
+      <div class="state-card"><h2>Loading your maps…</h2><p>Connecting to the thread store.</p></div>
+    </div>
+  </div>
+  <aside id="panel" aria-live="polite"></aside>
+</main>
+
+<script>
+(() => {
+  const MARK = { parked: "○", active: "▶", open: "◐", done: "✓", dropped: "✕" };
+  const LABEL = { parked: "Parked", active: "Chasing now", open: "Paused", done: "Done", dropped: "Dropped" };
+  const ORDER = ["active", "open", "parked", "done", "dropped"];
+  const COL = 288, ROW = 66, NW = 224, NH = 54;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  let maps = {};          // project -> doc data
+  let current = null;     // project id
+  let selected = null;    // node id
+  let showFinished = store.get("tm.showFinished") === "1";
+  $("showFinished").checked = showFinished;
+
+  // ------------------------------------------------------------- helpers
+  function ago(iso) {
+    if (!iso) return "";
+    const s = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (s < 60) return "just now";
+    if (s < 3600) return Math.round(s / 60) + " min ago";
+    if (s < 86400) return Math.round(s / 3600) + " h ago";
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  }
+
+  function md(text, title) {
+    const out = []; let list = false, pre = false, para = [];
+    const flush = () => { if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; } };
+    const endList = () => { if (list) { out.push("</ul>"); list = false; } };
+    for (const raw of String(text).split("\n")) {
+      const line = raw.replace(/\s+$/, "");
+      if (line.startsWith("```")) {
+        flush(); endList();
+        out.push(pre ? "</pre>" : "<pre>"); pre = !pre; continue;
+      }
+      if (pre) { out.push(esc(raw) + "\n"); continue; }
+      let m;
+      if ((m = line.match(/^(#{1,3})\s+(.*)$/))) {
+        flush(); endList();
+        if (m[1].length === 1 && m[2].trim() === String(title).trim()) continue;
+        const tag = m[1].length <= 2 ? "h4" : "h5";
+        out.push(`<${tag}>${inline(m[2])}</${tag}>`); continue;
+      }
+      if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {
+        flush(); if (!list) { out.push("<ul>"); list = true; }
+        out.push("<li>" + inline(m[1]) + "</li>"); continue;
+      }
+      if (!line.trim()) { flush(); endList(); continue; }
+      endList(); para.push(line.trim());
+    }
+    flush(); endList(); if (pre) out.push("</pre>");
+    return out.join("");
+  }
+
+  // ------------------------------------------------------------- model
+  function model(doc) {
+    const byId = {}, kids = {};
+    (doc.nodes || []).forEach((n, i) => { byId[n.id] = { ...n, i }; kids[n.id] = []; });
+    const roots = [];
+    Object.values(byId).forEach((n) => {
+      if (n.parent && byId[n.parent]) kids[n.parent].push(n); else roots.push(n);
+    });
+    Object.values(kids).forEach((a) => a.sort((x, y) => x.i - y.i));
+    roots.sort((x, y) => x.i - y.i);
+    const live = {};
+    const isLive = (n) => {
+      if (n.id in live) return live[n.id];
+      const own = !["done", "dropped"].includes(n.status);
+      const any = kids[n.id].map(isLive).some(Boolean);
+      return (live[n.id] = own || any);
+    };
+    roots.forEach(isLive);
+    const trail = new Set();
+    let a = byId[doc.active];
+    while (a) { trail.add(a.id); a = byId[a.parent]; }
+    return { byId, kids, roots, live, trail };
+  }
+
+  // ------------------------------------------------------------- render
+  function render() {
+    const doc = maps[current];
+    renderPicker();
+    if (!doc) { renderEmpty(); return; }
+    $("state").hidden = true;
+    const M = model(doc);
+    if (!selected || !M.byId[selected]) selected = doc.active && M.byId[doc.active] ? doc.active : (M.roots[0] && M.roots[0].id);
+
+    // tally
+    const counts = {};
+    Object.values(M.byId).forEach((n) => (counts[n.status] = (counts[n.status] || 0) + 1));
+    $("tally").innerHTML = ORDER.filter((s) => counts[s]).map((s) =>
+      `<span class="chip" title="${LABEL[s]}"><span class="mk">${MARK[s]}</span>${counts[s]} ${LABEL[s].toLowerCase()}</span>`).join("");
+
+    const act = M.byId[doc.active];
+    const actives = Object.values(M.byId).filter((n) => n.status === "active");
+    const liveN = Object.values(M.byId).filter((n) => n.session && n.session.live).length;
+    $("chasing").innerHTML =
+      (actives.length > 1 ? `Chasing <strong>${actives.length} threads</strong>${liveN ? ` · ${liveN} session${liveN > 1 ? "s" : ""} running` : ""}`
+        : act ? `Chasing <strong>${esc(act.title)}</strong>` : `<span>Nothing is being chased right now.</span>`) +
+      (current === "example" ? ` <span class="example-flag">Example data</span>` : "") +
+      `<span class="meta">Synced ${esc(ago(doc.updated))}</span>`;
+
+    // layout
+    const visible = (n) => showFinished || M.live[n.id] || n.id === selected;
+    let row = 0, maxD = 0;
+    const pos = {};
+    const place = (n, d) => {
+      maxD = Math.max(maxD, d);
+      const ks = M.kids[n.id].filter(visible);
+      ks.forEach((k) => place(k, d + 1));
+      pos[n.id] = { x: d * COL, y: ks.length ? (pos[ks[0].id].y + pos[ks[ks.length - 1].id].y) / 2 : row++ * ROW };
+    };
+    M.roots.forEach((r) => place(r, 0));
+    const W = maxD * COL + NW, H = Math.max(row - 1, 0) * ROW + NH;
+    const canvas = $("canvas");
+    canvas.style.width = W + "px"; canvas.style.height = H + "px";
+
+    let paths = "";
+    Object.keys(pos).forEach((id) => {
+      const n = M.byId[id]; if (!n.parent || !pos[n.parent]) return;
+      const p = pos[n.parent], c = pos[id];
+      const x1 = p.x + NW, y1 = p.y + NH / 2, x2 = c.x, y2 = c.y + NH / 2, mx = (x1 + x2) / 2;
+      const cls = ["edge", M.trail.has(id) ? "trail" : "", ["done", "dropped", "parked"].includes(n.status) && !M.trail.has(id) ? "faded" : ""].join(" ");
+      paths += `<path class="${cls}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+    });
+    const svg = $("edges");
+    svg.setAttribute("width", W); svg.setAttribute("height", H);
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = paths;
+
+    canvas.querySelectorAll(".node").forEach((e) => e.remove());
+    const frag = document.createDocumentFragment();
+    Object.entries(pos).forEach(([id, p]) => {
+      const n = M.byId[id];
+      const b = document.createElement("button");
+      b.className = `node ${n.status}${n.parent ? "" : " root"}${id === selected ? " selected" : ""}`;
+      b.style.left = p.x + "px"; b.style.top = p.y + "px";
+      b.dataset.id = id;
+      b.title = n.title;
+      b.setAttribute("aria-label", `${n.title} (${LABEL[n.status]})`);
+      b.innerHTML = `<span class="mk">${MARK[n.status]}</span><span class="t">${esc(n.title)}</span>${n.has_brief ? '<span class="brief-dot" title="Has a brief"></span>' : ""}${n.session && n.session.live ? '<span class="live-dot" title="A session is running"></span>' : ""}`;
+      frag.appendChild(b);
+    });
+    canvas.appendChild(frag);
+    renderPanel(M);
+  }
+
+  function renderPanel(M) {
+    const n = M.byId[selected];
+    const P = $("panel");
+    if (!n) { P.innerHTML = ""; return; }
+    const crumbs = []; let p = M.byId[n.parent];
+    while (p) { crumbs.unshift(p); p = M.byId[p.parent]; }
+    const kids = M.kids[n.id];
+    const s = n.session && n.session.live ? n.session : null;
+    const copyRow = (label, cmd, ghost) =>
+      `<div class="cmd-label">${label}</div><div class="cmd"><code>${esc(cmd)}</code><button class="btn${ghost ? " btn-ghost" : ""}" data-copy="${esc(cmd)}">Copy</button></div>`;
+    let actions;
+    if (s && s.url && /^https:\/\/claude\.ai\//.test(s.url)) {
+      actions = `<a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Open session ↗</a>
+        <div class="session-line">Running in “${esc(s.name || "session")}”. Say <code>/wrap</code> there when it's settled.</div>`;
+    } else if (s) {
+      actions = `<div class="session-line">Running in “${esc(s.name || "a session")}” (no link recorded). Find it in your claude.ai sessions.</div>`;
+    } else if (["done", "dropped"].includes(n.status)) {
+      actions = copyRow("Reopen in a new session", `/chase ${n.id} +`);
+    } else {
+      actions = copyRow("Start in a new session", `/chase ${n.id} +`) + copyRow("Or switch a session to it", `/chase ${n.id}`, true);
+    }
+    P.innerHTML = `
+      <span class="status-chip ${n.status}">${MARK[n.status]} ${LABEL[n.status]}</span>
+      <h2>${esc(n.title)}</h2>
+      ${crumbs.length ? `<div class="crumbs">${crumbs.map((c) => `<button data-go="${esc(c.id)}">${esc(c.title)}</button>`).join("<span>›</span>")}</div>` : ""}
+      ${actions}
+      <div class="id-line">${esc(n.id)} · updated ${esc(ago(n.updated))}</div>
+      ${n.summary ? `<div class="sec"><h3>Where it stands</h3><p>${inline(n.summary)}</p></div>` : ""}
+      ${n.why ? `<div class="sec"><h3>Why it came up</h3><p>${inline(n.why)}</p></div>` : ""}
+      ${kids.length ? `<div class="sec"><h3>Branches</h3><ul class="kids">${kids.map((k) =>
+        `<li><button data-go="${esc(k.id)}"><span class="km">${MARK[k.status]}</span><span class="kt">${esc(k.title)}</span></button></li>`).join("")}</ul></div>` : ""}
+      <div class="sec"><h3>Brief</h3>${
+        n.brief ? `<div class="brief">${md(n.brief, n.title)}</div>`
+        : n.has_brief ? `<p class="none">This map syncs without brief text. Open threads/briefs/${esc(n.id)}.md in the project folder.</p>`
+        : `<p class="none">No brief yet. One is written when you chase this thread.</p>`}</div>`;
+  }
+
+  function renderPicker() {
+    const sel = $("project");
+    const ids = Object.keys(maps).sort((a, b) => String(maps[b].updated).localeCompare(String(maps[a].updated)));
+    if (!ids.length) { sel.innerHTML = "<option>No maps yet</option>"; sel.disabled = true; return; }
+    sel.disabled = false;
+    sel.innerHTML = ids.map((id) => `<option value="${esc(id)}"${id === current ? " selected" : ""}>${esc(maps[id].title || id)}</option>`).join("");
+  }
+
+  function renderEmpty(kind) {
+    $("tally").innerHTML = ""; $("chasing").innerHTML = ""; $("panel").innerHTML = "";
+    $("canvas").querySelectorAll(".node").forEach((e) => e.remove()); $("edges").innerHTML = "";
+    const st = $("state"); st.hidden = false;
+    st.innerHTML = kind === "nodb"
+      ? `<div class="state-card"><h2>Open this map on claude.ai</h2><p>Your thread maps are stored with this page on claude.ai. Sign in and open it there to see them.</p></div>`
+      : kind === "slow"
+      ? `<div class="state-card"><h2>Can't reach your maps yet</h2><p>The thread store hasn't answered. The map appears here as soon as it does.</p></div>`
+      : `<div class="state-card"><h2>No thread maps yet</h2>
+          <p>In Claude Code, in your project folder, run <code>/threads start "your main question"</code> or just <code>/park</code> when a discussion sprouts side questions.</p>
+          <p><code>/chase &lt;id&gt; +</code> opens a thread in its own session with a focused brief, <code>/chase &lt;id&gt;</code> switches the current session, and <code>/wrap</code> closes one out. Each change shows up here.</p></div>`;
+  }
+
+  // ------------------------------------------------------------- events
+  function select(id, scroll) {
+    selected = id; render();
+    if (scroll) {
+      const el = $("canvas").querySelector(`.node[data-id="${CSS.escape(id)}"]`);
+      el && el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    }
+  }
+  $("canvas").addEventListener("click", (e) => { const b = e.target.closest(".node"); if (b) select(b.dataset.id); });
+  $("panel").addEventListener("click", async (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go) { select(go.dataset.go, true); return; }
+    const cb = e.target.closest("[data-copy]");
+    if (cb) {
+      const txt = cb.dataset.copy, code = cb.previousElementSibling;
+      try { await navigator.clipboard.writeText(txt); cb.textContent = "Copied"; setTimeout(() => (cb.textContent = "Copy"), 1400); }
+      catch { const r = document.createRange(); r.selectNodeContents(code); const s = getSelection(); s.removeAllRanges(); s.addRange(r); cb.textContent = "Press Ctrl+C"; }
+    }
+  });
+  $("project").addEventListener("change", (e) => setProject(e.target.value, true));
+  $("showFinished").addEventListener("change", (e) => { showFinished = e.target.checked; store.set("tm.showFinished", showFinished ? "1" : "0"); render(); });
+  window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h && maps[h] && h !== current) setProject(h, false); });
+
+  function setProject(id, pushHash) {
+    if (current !== id) selected = null;
+    current = id; store.set("tm.project", id);
+    if (pushHash && location.hash.slice(1) !== id) location.hash = id;
+    render();
+    const a = maps[id] && maps[id].active;
+    if (a) requestAnimationFrame(() => { const el = $("canvas").querySelector(`.node[data-id="${CSS.escape(a)}"]`); el && el.scrollIntoView({ block: "center", inline: "center" }); });
+  }
+
+  // ------------------------------------------------------------- data
+  renderEmpty("loading");
+  $("state").innerHTML = `<div class="state-card"><h2>Loading your maps…</h2><p>Connecting to the thread store.</p></div>`;
+
+  (async () => {
+    const db = window.claude && window.claude.use ? await window.claude.use("db").catch(() => null) : null;
+    if (!db) { renderEmpty("nodb"); renderPicker(); return; }
+    let first = true;
+    const timer = setTimeout(() => { if (first) renderEmpty("slow"); }, 10000);
+    db.collection("maps").onSnapshot((snap) => {
+      const next = {};
+      snap.docs.forEach((d) => { if (d.exists) next[d.id] = d.data(); });
+      maps = next;
+      if (!snap.metadata.fromCache) { clearTimeout(timer); }
+      const wasFirst = first; first = false;
+      const want = location.hash.slice(1) || store.get("tm.project");
+      const ids = Object.keys(maps).sort((a, b) => String(maps[b].updated).localeCompare(String(maps[a].updated)));
+      const pick = maps[current] ? current : (maps[want] ? want : ids.find((i) => i !== "example") || ids[0]);
+      if (!pick) { current = null; renderPicker(); renderEmpty(); return; }
+      if (wasFirst || pick !== current) setProject(pick, false); else render();
+    }, (err) => {
+      clearTimeout(timer);
+      if (!Object.keys(maps).length) renderEmpty("slow");
+      console.warn("thread store:", err && err.code);
+    });
+  })();
+})();
+</script>
