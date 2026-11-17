@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "mindmap-threads",
+  "description": "The mindmap-threads plugin: a mindmap of the questions in your Claude Code discussions.",
+  "owner": {
+    "name": "Paul Lovelace"
+  },
+  "plugins": [
+    {
+      "name": "mindmap-threads",
+      "source": "./",
+      "description": "Track branching Claude Code discussions as a mindmap of questions, with focused briefs, one session per thread, a live claude.ai mindmap page and an Obsidian vault export."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "mindmap-threads",
+  "version": "0.2.0",
+  "description": "Track branching Claude Code discussions as a mindmap of questions: /park side questions with briefs, /chase one in this session or its own background session, /wrap it up, /threads to manage the map. Optional live mindmap page on claude.ai and read-only Obsidian vault export.",
+  "keywords": [
+    "mindmap",
+    "threads",
+    "notes",
+    "context",
+    "remote-control",
+    "obsidian"
+  ],
+  "author": {
+    "name": "Paul Lovelace"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/tamingit/claude-mindmap-threads"
+}

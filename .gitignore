@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.DS_Store
+# per-project state if you test inside this repo
+threads/
